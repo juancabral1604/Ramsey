@@ -378,7 +378,13 @@ def build_scenario_bundle(
     linear_analysis = compute_linear_analysis(params, steady_state)
     c_0_local = compute_local_consumption(k_0, steady_state, linear_analysis)
     backward = compute_backward_stable_path(k_0, params, steady_state, linear_analysis)
+    
     bvp = compute_bvp_path(k_0, params, steady_state, linear_analysis, T=T)
+    
+    if not bvp["success"]:
+        raise RuntimeError(
+            f"El método BVP no convergió: {bvp['message']}"
+        )
     c_0_backward = backward["c_0_backward"]
     c_0_low = c_0_backward * (1 - deviation)
     c_0_high = c_0_backward * (1 + deviation)
