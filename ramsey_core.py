@@ -10,7 +10,7 @@ class RamseyParameters:
     A: float = 1.0
     alpha: float = 0.33
     rho: float = 0.04
-    theta: float = 4.0
+    theta: float = 2.0
     delta: float = 0.05
     n: float = 0.01
 
@@ -141,12 +141,14 @@ def compute_backward_stable_path(
     params,
     steady_state,
     linear_analysis,
-    epsilon=1e-5,
-    backward_horizon=300,
-    max_step=0.1
+    epsilon_ratio=1e-6,
+    minimum_horizon=300,
+    maximum_horizon=15000
 ):
     if k_0 <= 0:
         raise ValueError("k_0 debe ser positivo.")
+
+
     if np.isclose(k_0, steady_state.k_star):
         return {
             "success": True,
@@ -156,41 +158,135 @@ def compute_backward_stable_path(
             "time": np.array([0.0]),
             "k_path": np.array([steady_state.k_star]),
             "c_path": np.array([steady_state.c_star]),
+            "adaptive_horizon": 0.0,
             "solution": None
         }
-    direction = np.sign(k_0 - steady_state.k_star)
+
+
+    lambda_s = linear_analysis["lambda_s"]
     v_s = linear_analysis["v_s"]
-    near_point = np.array([steady_state.k_star, steady_state.c_star]) + direction * epsilon * v_s
+
+
+    if lambda_s >= 0:
+        raise ValueError("No se identificó un autovalor estable negativo.")
+
+
+    direction = np.sign(k_0 - steady_state.k_star)
+
+
+    capital_scale = max(abs(steady_state.k_star), 1.0)
+
+
+    displacement_size = (
+        epsilon_ratio
+        * capital_scale
+        / max(abs(v_s[0]), 1e-14)
+    )
+
+
+    near_point = (
+        np.array([
+            steady_state.k_star,
+            steady_state.c_star
+        ])
+        + direction * displacement_size * v_s
+    )
+
+
+    capital_distance = abs(
+        k_0 - near_point[0]
+    )
+
+
+    initial_capital_displacement = abs(
+        near_point[0] - steady_state.k_star
+    )
+
+
+    if capital_distance <= initial_capital_displacement:
+        estimated_horizon = minimum_horizon
+    else:
+        estimated_horizon = (
+            np.log(
+                capital_distance
+                / initial_capital_displacement
+            )
+            / abs(lambda_s)
+        )
+
+
+    adaptive_horizon = min(
+        maximum_horizon,
+        max(
+            minimum_horizon,
+            1.35 * estimated_horizon
+        )
+    )
+
+
+    adaptive_max_step = max(
+        0.1,
+        adaptive_horizon / 5000
+    )
+
 
     def reach_k0(t, values):
         return values[0] - k_0
 
+
     reach_k0.terminal = True
     reach_k0.direction = 0
 
+
     solution = solve_ivp(
-        lambda t, y: ramsey_system(t, y, params),
-        [0, -backward_horizon],
+        lambda t, values: ramsey_system(
+            t,
+            values,
+            params
+        ),
+        [0, -adaptive_horizon],
         near_point,
         events=reach_k0,
         rtol=1e-10,
         atol=1e-12,
-        max_step=max_step
+        max_step=adaptive_max_step
     )
-    reached_k0 = len(solution.t_events[0]) > 0
-    if not reached_k0:
-        raise RuntimeError("La integración backward no alcanzó k_0.")
+
+
+    reached_k_0 = (
+        len(solution.t_events[0]) > 0
+    )
+
+
+    if not reached_k_0:
+        raise RuntimeError(
+            "La integración backward no alcanzó k_0 "
+            f"con un horizonte adaptativo de "
+            f"{adaptive_horizon:.2f}."
+        )
+
+
     event_values = solution.y_events[0][0]
+
+
     return {
         "success": bool(solution.success),
         "message": solution.message,
-        "k_0_backward": float(event_values[0]),
-        "c_0_backward": float(event_values[1]),
+        "k_0_backward": float(
+            event_values[0]
+        ),
+        "c_0_backward": float(
+            event_values[1]
+        ),
         "time": solution.t,
         "k_path": solution.y[0],
         "c_path": solution.y[1],
+        "adaptive_horizon": float(
+            adaptive_horizon
+        ),
         "solution": solution
     }
+
 
 
 def compute_bvp_path(
@@ -337,6 +433,13 @@ def classify_trajectory(result, steady_state):
     elif relative_final_distance < 0.002 and approaching_at_end and result["integration_success"]:
         classification = "Cercanía al equilibrio en el horizonte simulado"
         explanation = "La trayectoria termina muy cerca del estado estacionario y continúa aproximándose."
+    elif approaching_at_end and result["integration_success"]:
+        classification = "Aproximación al equilibrio sin alcanzar la tolerancia"
+        explanation = (
+            "La trayectoria continúa aproximándose al estado estacionario, "
+            "pero no alcanza la tolerancia relativa del 0,2 % dentro del "
+            "horizonte simulado. Esto no demuestra convergencia asintótica."
+        )
     elif (
         result["final_k"] > steady_state.k_star
         and result["final_c"] < steady_state.c_star
@@ -376,33 +479,101 @@ def build_scenario_bundle(
     steady_state = compute_steady_state(params)
     k_0 = k_0_ratio * steady_state.k_star
     linear_analysis = compute_linear_analysis(params, steady_state)
-    c_0_local = compute_local_consumption(k_0, steady_state, linear_analysis)
-    backward = compute_backward_stable_path(k_0, params, steady_state, linear_analysis)
-    
-    bvp = compute_bvp_path(k_0, params, steady_state, linear_analysis, T=T)
-    
-    if not bvp["success"]:
-        raise RuntimeError(
-            f"El método BVP no convergió: {bvp['message']}"
+    c_0_local = compute_local_consumption(
+        k_0, steady_state, linear_analysis
+    )
+
+    backward = None
+    backward_error = None
+
+    try:
+        backward = compute_backward_stable_path(
+            k_0, params, steady_state, linear_analysis
         )
-    c_0_backward = backward["c_0_backward"]
-    c_0_low = c_0_backward * (1 - deviation)
-    c_0_high = c_0_backward * (1 + deviation)
-    low_result = simulate_ramsey(k_0, c_0_low, params, steady_state, T=T)
-    correct_result = simulate_ramsey(k_0, c_0_backward, params, steady_state, T=T)
-    high_result = simulate_ramsey(k_0, c_0_high, params, steady_state, T=T)
+    except Exception as error:
+        backward_error = str(error)
+
+    bvp = None
+    bvp_error = None
+
+    try:
+        bvp = compute_bvp_path(
+            k_0, params, steady_state, linear_analysis, T=T
+        )
+        if not bvp["success"]:
+            bvp_error = bvp["message"]
+            bvp = None
+    except Exception as error:
+        bvp_error = str(error)
+
+    c_0_backward = (
+        backward["c_0_backward"]
+        if backward is not None else np.nan
+    )
+    c_0_bvp = (
+        bvp["c_0_bvp"]
+        if bvp is not None else np.nan
+    )
+
+    if backward is not None:
+        c_0_reference = c_0_backward
+        stable_method = "Backward adaptativo"
+    elif bvp is not None:
+        c_0_reference = c_0_bvp
+        stable_method = "BVP de respaldo"
+    else:
+        c_0_reference = c_0_local
+        stable_method = "Lineal local"
+
+    c_0_low = c_0_reference * (1 - deviation)
+    c_0_high = c_0_reference * (1 + deviation)
+
+    low_result = simulate_ramsey(
+        k_0, c_0_low, params, steady_state, T=T
+    )
+    correct_result = simulate_ramsey(
+        k_0, c_0_reference, params, steady_state, T=T
+    )
+    high_result = simulate_ramsey(
+        k_0, c_0_high, params, steady_state, T=T
+    )
+
     low_diagnosis = classify_trajectory(low_result, steady_state)
     correct_diagnosis = classify_trajectory(correct_result, steady_state)
     high_diagnosis = classify_trajectory(high_result, steady_state)
+
     comparison = pd.DataFrame({
-        "Escenario": ["Consumo bajo", "Consumo backward", "Consumo alto"],
-        "c0": [c_0_low, c_0_backward, c_0_high],
-        "Capital final": [low_result["final_k"], correct_result["final_k"], high_result["final_k"]],
-        "Consumo final": [low_result["final_c"], correct_result["final_c"], high_result["final_c"]],
-        "Distancia mínima": [low_result["minimum_distance"], correct_result["minimum_distance"], high_result["minimum_distance"]],
-        "Distancia final": [low_result["final_distance"], correct_result["final_distance"], high_result["final_distance"]],
-        "Clasificación": [low_diagnosis["classification"], correct_diagnosis["classification"], high_diagnosis["classification"]]
+        "Escenario": [
+            "Consumo bajo", "Consumo de referencia", "Consumo alto"
+        ],
+        "c0": [c_0_low, c_0_reference, c_0_high],
+        "Capital final": [
+            low_result["final_k"],
+            correct_result["final_k"],
+            high_result["final_k"]
+        ],
+        "Consumo final": [
+            low_result["final_c"],
+            correct_result["final_c"],
+            high_result["final_c"]
+        ],
+        "Distancia mínima": [
+            low_result["minimum_distance"],
+            correct_result["minimum_distance"],
+            high_result["minimum_distance"]
+        ],
+        "Distancia final": [
+            low_result["final_distance"],
+            correct_result["final_distance"],
+            high_result["final_distance"]
+        ],
+        "Clasificación": [
+            low_diagnosis["classification"],
+            correct_diagnosis["classification"],
+            high_diagnosis["classification"]
+        ]
     })
+
     return {
         "params": params,
         "steady_state": steady_state,
@@ -410,9 +581,13 @@ def build_scenario_bundle(
         "k_0": k_0,
         "c_0_local": c_0_local,
         "backward": backward,
+        "backward_error": backward_error,
         "bvp": bvp,
+        "bvp_error": bvp_error,
+        "stable_method": stable_method,
+        "c_0_reference": c_0_reference,
         "c_0_backward": c_0_backward,
-        "c_0_bvp": bvp["c_0_bvp"],
+        "c_0_bvp": c_0_bvp,
         "c_0_low": c_0_low,
         "c_0_high": c_0_high,
         "low_result": low_result,

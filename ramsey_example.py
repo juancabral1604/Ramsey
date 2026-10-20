@@ -4,7 +4,7 @@ params = RamseyParameters(
     A=1.0,
     alpha=0.33,
     rho=0.04,
-    theta=4.0,
+    theta=2.0,
     delta=0.05,
     n=0.01
 )
