@@ -68,7 +68,13 @@ try:
     backward = compute_backward_stable_path(k_0, params, steady_state, linear_analysis)
     c_0_backward = backward["c_0_backward"]
     bvp = compute_bvp_path(k_0, params, steady_state, linear_analysis, T=T)
+
+    if not bvp["success"]:
+        st.error(f'El método BVP no convergió: {bvp["message"]}')
+        st.stop()
+    
     c_0_bvp = bvp["c_0_bvp"]
+    
 except Exception as error:
     st.error(f"No fue posible calcular la senda estable para esta parametrización: {error}")
     st.stop()
@@ -358,6 +364,15 @@ with methods_tab:
         ),
         use_container_width=True
     )
+    
+    st.write("Diagnóstico del método BVP")
+    st.write("Estado:", bvp["message"])
+    
+    st.metric(
+        "Residuo máximo de las condiciones de contorno",
+        f"{np.max(np.abs(bvp['boundary_residuals'])):.3e}"
+    )
+    
     st.caption("Backward y BVP aproximan la senda estable mediante procedimientos numéricos diferentes. Su cercanía funciona como control de robustez.")
 
 with guide_tab:
