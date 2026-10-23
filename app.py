@@ -81,7 +81,7 @@ with st.sidebar:
     T = st.slider(
         "Horizonte T",
         min_value=10,
-        max_value=150,
+        max_value=1000,
         value=100,
         step=5
     )
