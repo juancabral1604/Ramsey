@@ -41,8 +41,8 @@ def validate_parameters(params, k_0=None, c_0=None, T=None):
         errors.append("k_0 debe ser positivo.")
     if c_0 is not None and c_0 <= 0:
         errors.append("c_0 debe ser positivo.")
-    if T is not None and not 10 <= T <= 150:
-        errors.append("T debe estar entre 10 y 150.")
+    if T < 10 or T > 1000:
+        errors.append("T debe estar entre 10 y 1000.")
     return errors
 
 
