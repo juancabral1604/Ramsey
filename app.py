@@ -612,12 +612,27 @@ with time_tab:
         )
         figure_3d.add_trace(
             go.Scatter3d(
-                x=[steady_state.k_star],
-                y=[steady_state.c_star],
-                z=[0],
-                mode="markers",
-                name="Estado estacionario",
-                marker=dict(color="black", size=7, symbol="diamond")
+                x=np.full_like(
+                    linear_3d["time"],
+                    steady_state.k_star
+                ),
+                y=np.full_like(
+                    linear_3d["time"],
+                    steady_state.c_star
+                ),
+                z=linear_3d["time"],
+                mode="lines",
+                name="Equilibrio: k = k*, c = c*",
+                line=dict(
+                    color="black",
+                    width=4,
+                    dash="dash"
+                ),
+                hovertemplate=(
+                    "Capital estacionario: %{x:.6f}<br>"
+                    "Consumo estacionario: %{y:.6f}<br>"
+                    "Tiempo: %{z:.2f}<extra></extra>"
+                )
             )
         )
         figure_3d.update_layout(
@@ -627,8 +642,30 @@ with time_tab:
                 xaxis_title="Capital por persona, k",
                 yaxis_title="Consumo por persona, c",
                 zaxis_title="Tiempo, t",
-                aspectmode="cube",
-                camera=dict(eye=dict(x=1.6, y=1.6, z=1.2))
+                camera=dict(
+                    eye=dict(
+                        x=1.8,
+                        y=-2.0,
+                        z=0.35
+                    ),
+                    center=dict(
+                        x=0,
+                        y=0,
+                        z=0
+                    ),
+                    up=dict(
+                        x=0,
+                        y=0,
+                        z=1
+                    ),
+                    projection=dict(type="orthographic")
+                ),
+                aspectmode="manual",
+                aspectratio=dict(
+                    x=1.25,
+                    y=1.0,
+                    z=1.25
+                )
             ),
             legend=dict(
                 orientation="h",
