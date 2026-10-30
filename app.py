@@ -9,6 +9,7 @@ from ramsey_core import (
     classify_trajectory,
     compute_backward_stable_path,
     compute_bvp_path,
+    compute_linear_3d_paths,
     compute_linear_analysis,
     compute_local_consumption,
     compute_steady_state,
@@ -522,6 +523,119 @@ with time_tab:
     time_figure.update_xaxes(title_text="Tiempo", row=2, col=2)
     time_figure.update_layout(height=800, title="Evolución temporal", hovermode="x unified")
     st.plotly_chart(time_figure, use_container_width=True)
+
+    st.divider()
+    st.subheader("Estabilidad local en tres dimensiones")
+    st.write(
+        "Descomposición de las direcciones estable e inestable "
+        "del sistema linealizado alrededor del estado estacionario."
+    )
+
+    try:
+        linear_3d = compute_linear_3d_paths(
+            steady_state,
+            linear_analysis,
+            T=T
+        )
+    except (ValueError, FloatingPointError) as error:
+        st.warning(f"No se pudo construir la visualización 3D: {error}")
+    else:
+        figure_3d = go.Figure()
+
+        figure_3d.add_trace(
+            go.Scatter3d(
+                x=linear_3d["stable_k"],
+                y=linear_3d["stable_c"],
+                z=linear_3d["time"],
+                mode="lines",
+                name="Modo estable",
+                line=dict(color="green", width=7),
+                hovertemplate=(
+                    "Capital: %{x:.6f}<br>"
+                    "Consumo: %{y:.6f}<br>"
+                    "Tiempo: %{z:.2f}<extra></extra>"
+                )
+            )
+        )
+        figure_3d.add_trace(
+            go.Scatter3d(
+                x=linear_3d["unstable_k"],
+                y=linear_3d["unstable_c"],
+                z=linear_3d["time"],
+                mode="lines",
+                name="Modo inestable",
+                line=dict(color="red", width=7),
+                hovertemplate=(
+                    "Capital: %{x:.6f}<br>"
+                    "Consumo: %{y:.6f}<br>"
+                    "Tiempo: %{z:.2f}<extra></extra>"
+                )
+            )
+        )
+        figure_3d.add_trace(
+            go.Scatter3d(
+                x=linear_3d["perturbed_k"],
+                y=linear_3d["perturbed_c"],
+                z=linear_3d["time"],
+                mode="lines",
+                name="Combinación de ambos modos",
+                line=dict(color="royalblue", width=7),
+                hovertemplate=(
+                    "Capital: %{x:.6f}<br>"
+                    "Consumo: %{y:.6f}<br>"
+                    "Tiempo: %{z:.2f}<extra></extra>"
+                )
+            )
+        )
+        figure_3d.add_trace(
+            go.Scatter3d(
+                x=[steady_state.k_star],
+                y=[steady_state.c_star],
+                z=[0],
+                mode="markers",
+                name="Estado estacionario",
+                marker=dict(color="black", size=7, symbol="diamond")
+            )
+        )
+        figure_3d.update_layout(
+            title="Modos estable e inestable del punto silla",
+            height=750,
+            scene=dict(
+                xaxis_title="Capital por persona, k",
+                yaxis_title="Consumo por persona, c",
+                zaxis_title="Tiempo, t",
+                aspectmode="cube",
+                camera=dict(eye=dict(x=1.6, y=1.6, z=1.2))
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.12,
+                xanchor="center",
+                x=0.5
+            ),
+            margin=dict(l=0, r=0, b=0, t=70)
+        )
+        st.plotly_chart(figure_3d, use_container_width=True)
+
+        column_s, column_u = st.columns(2)
+        column_s.metric("Autovalor estable", f'{linear_3d["lambda_s"]:.8f}')
+        column_u.metric("Autovalor inestable", f'{linear_3d["lambda_u"]:.8f}')
+
+        st.latex(
+            r"x(t)=A_s e^{\lambda_s t}v_s"
+            r"+A_u e^{\lambda_u t}v_u"
+        )
+        st.caption(
+            r"Aquí $x(t)=(k(t)-k^*,\ c(t)-c^*)$ representa la desviación "
+            "respecto del estado estacionario. El modo estable converge "
+            "hacia el equilibrio y el inestable se aleja de él. La curva "
+            "azul combina ambos modos y muestra cómo una pequeña "
+            "componente inestable puede dominar con el tiempo. "
+            "Es una ilustración del sistema linealizado local, no una "
+            "solución global del sistema no lineal ni la trayectoria "
+            "correspondiente al consumo inicial seleccionado."
+        )
 
     summary = pd.DataFrame({
         "Indicador": [
