@@ -674,3 +674,4 @@ def compute_linear_3d_paths(
         "unstable_amplitude": unstable_amplitude,
         "horizon": horizon
     }
+
