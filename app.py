@@ -10,7 +10,6 @@ from ramsey_core import (
     compute_backward_stable_path,
     compute_bvp_path,
     compute_linear_3d_paths,
-    compute_linear_3d_paths,
     compute_linear_analysis,
     compute_local_consumption,
     compute_steady_state,
